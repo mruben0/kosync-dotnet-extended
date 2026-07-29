@@ -36,7 +36,6 @@ public class SyncController : ControllerBase
             state = "OK"
         });
     }
-
     [HttpGet("/users/auth")]
     public ObjectResult AuthoriseUser()
     {
@@ -175,6 +174,136 @@ public class SyncController : ControllerBase
         return StatusCode(200, new
         {
             document = document.DocumentHash,
+            timestamp = document.Timestamp
+        });
+    }
+
+    [HttpPost("users/document")]
+    public ObjectResult UpsertDocument(string documentName)
+    {
+        string? username = Request.Headers["x-auth-user"];
+        string? passwordHash = Request.Headers["x-auth-key"];
+
+        if (username is null || passwordHash is null)
+        {
+            LogWarning("Request to /users/auth without credentials");
+
+            return StatusCode(401, new
+            {
+                message = "Invalid credentials"
+            });
+        }
+
+        if (!_userService.IsAuthenticated)
+        {
+            LogWarning($"Login to [{username}] attempted with invalid credentials.");
+
+            return StatusCode(401, new
+            {
+                message = "User could not be found"
+            });
+        }
+
+        if (!_userService.IsActive)
+        {
+            LogWarning($"Login to inactive account [{username}] attempted.");
+
+            return StatusCode(401, new
+            {
+                message = "User is inactive"
+            });
+        }
+        var userCollection = _db.Context.GetCollection<User>("users").Include(i => i.Documents);
+
+        var user = userCollection.FindOne(i => i.Username == _userService.Username);
+
+        var documentHash = DocumentService.GetFilenameHash(documentName);
+
+        var document = user.Documents.SingleOrDefault(i => i.DocumentHash == documentHash);
+        if (document is null)
+        {
+            document = new Document
+            {
+                DocumentHash = documentHash
+            };
+            user.Documents.Add(document);
+        }
+
+        document.DocumentName = documentName;
+
+        userCollection.Update(user);
+
+        LogInfo($"Added a new book {documentName} with hash {documentHash} for user {_userService.Username}");
+        return StatusCode(200, new
+        {
+            document = document.DocumentHash,
+            name = document.DocumentName,
+            timestamp = document.Timestamp
+        });
+    }
+
+    [HttpPut("users/document")]
+    public ObjectResult RenameDocument(string oldDocumentName, string newDocumentName)
+    {
+        string? username = Request.Headers["x-auth-user"];
+        string? passwordHash = Request.Headers["x-auth-key"];
+
+        if (username is null || passwordHash is null)
+        {
+            LogWarning("Request to /users/document/rename without credentials");
+
+            return StatusCode(401, new
+            {
+                message = "Invalid credentials"
+            });
+        }
+
+        if (!_userService.IsAuthenticated)
+        {
+            LogWarning($"Request for [{username}] attempted with invalid credentials.");
+
+            return StatusCode(401, new
+            {
+                message = "User could not be found"
+            });
+        }
+
+        if (!_userService.IsActive)
+        {
+            LogWarning($"Request for inactive account [{username}] attempted.");
+
+            return StatusCode(401, new
+            {
+                message = "User is inactive"
+            });
+        }
+
+        var userCollection = _db.Context.GetCollection<User>("users").Include(i => i.Documents);
+        var user = userCollection.FindOne(i => i.Username == _userService.Username);
+
+        var oldDocumentHash = DocumentService.GetFilenameHash(oldDocumentName);
+        var document = user.Documents.SingleOrDefault(i => i.DocumentHash == oldDocumentHash);
+
+        if (document is null)
+        {
+            return StatusCode(404, new
+            {
+                message = "Document not found"
+            });
+        }
+
+        var newDocumentHash = DocumentService.GetFilenameHash(newDocumentName);
+
+        document.DocumentName = newDocumentName;
+        document.DocumentHash = newDocumentHash;
+
+        userCollection.Update(user);
+
+        LogInfo($"Renamed book {oldDocumentName} to {newDocumentName} for user {_userService.Username}");
+        return StatusCode(200, new
+        {
+            document = document.DocumentHash,
+            name = document.DocumentName,
             timestamp = document.Timestamp
         });
     }

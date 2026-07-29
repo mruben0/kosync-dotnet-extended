@@ -13,4 +13,6 @@ public class Document
     public string DeviceId { get; set; } = default!;
 
     public DateTime Timestamp {get;set;} = default!;
+
+    public string DocumentName { get; set; } = default!;
 }
